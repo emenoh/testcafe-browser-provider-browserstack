@@ -5,17 +5,13 @@ import BrowserstackConnector from './connector';
 import JSTestingBackend from './backends/js-testing';
 import AutomateBackend from './backends/automate';
 import BrowserProxy from './browser-proxy';
-
-
-const BUILD_ID     = process.env['BROWSERSTACK_BUILD_ID'];
-const PROJECT_NAME = process.env['BROWSERSTACK_PROJECT_NAME'];
+import isEnvVarTrue from './utils/is-env-var-true';
 
 const ANDROID_PROXY_RESPONSE_DELAY = 500;
 
-function isAutomateEnabled () {
-    return process.env['BROWSERSTACK_USE_AUTOMATE'] && process.env['BROWSERSTACK_USE_AUTOMATE'] !== '0';
-}
 
+const isAutomateEnabled = () => isEnvVarTrue('BROWSERSTACK_USE_AUTOMATE');
+const isLocalEnabled    = () => !isEnvVarTrue('BROWSERSTACK_NO_LOCAL');
 
 export default {
     // Multiple browsers support
@@ -30,10 +26,25 @@ export default {
     platformsInfo: [],
     browserNames:  [],
 
+    _addEnvironmentPreferencesToCapabilities (capabilities) {
+        const BUILD_ID           = process.env['BROWSERSTACK_BUILD_ID'];
+        const PROJECT_NAME       = process.env['BROWSERSTACK_PROJECT_NAME'];
+        const DISPLAY_RESOLUTION = process.env['BROWSERSTACK_DISPLAY_RESOLUTION'];
+
+        if (PROJECT_NAME)
+            capabilities.project = PROJECT_NAME;
+
+        if (BUILD_ID)
+            capabilities.build = BUILD_ID;
+
+        if (DISPLAY_RESOLUTION)
+            capabilities.resolution = DISPLAY_RESOLUTION;
+    },
+
     _getConnector () {
         this.connectorPromise = this.connectorPromise
             .then(async connector => {
-                if (!connector) {
+                if (!connector && isLocalEnabled()) {
                     connector = new BrowserstackConnector(process.env['BROWSERSTACK_ACCESS_KEY']);
 
                     await connector.create();
@@ -157,15 +168,17 @@ export default {
             pageUrl = 'http://' + browserProxy.targetHost + ':' + browserProxy.proxyPort + parsedPageUrl.path;
         }
 
-        if (PROJECT_NAME)
-            capabilities.project = PROJECT_NAME;
-
-        if (BUILD_ID)
-            capabilities.build = BUILD_ID;
+        this._addEnvironmentPreferencesToCapabilities(capabilities);
 
         capabilities.name            = `TestCafe test run ${id}`;
-        capabilities.localIdentifier = connector.connectorInstance.localIdentifierFlag;
-        capabilities.local           = true;
+
+        if (connector) {
+            capabilities.localIdentifier = connector.connectorInstance.localIdentifierFlag;
+            capabilities.local           = true;
+        }
+
+        if (browserName.indexOf('chrome') !== -1 && process.env['BROWSERSTACK_CHROME_ARGS'] && process.env['BROWSERSTACK_CHROME_ARGS'].length > 0)
+            capabilities.chromeOptions = { args: [process.env['BROWSERSTACK_CHROME_ARGS']] };
 
         await this.backend.openBrowser(id, pageUrl, capabilities);
 
